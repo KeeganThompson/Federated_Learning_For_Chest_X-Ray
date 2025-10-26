@@ -1,0 +1,57 @@
+# === Python build and cache ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# === Virtual environments ===
+.env
+.venv
+env/
+venv/
+*.egg-info/
+
+# === Jupyter notebooks ===
+.ipynb_checkpoints/
+
+# === Logs and outputs ===
+*.log
+logs/
+runs/
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+
+# === Datasets ===
+*.zip
+train/
+valid/
+data/
+datasets/
+CheXpert-v1.0-small/
+hospitals_split/
+hospitals_data/
+global_test.csv
+train_split.csv
+train.csv
+valid.csv
+
+# === Temporary files ===
+*.tmp
+*.bak
+*.swp
+.DS_Store
+
+# === IDE / Editor files ===
+.vscode/
+.idea/
+*.iml
+
+# === System ===
+Thumbs.db
+
+# SLURM job outputs
+slurm-*.out
+job_logs/
