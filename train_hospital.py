@@ -9,13 +9,14 @@ from pathlib import Path
 from tqdm import tqdm
 
 # === CONFIG ===
-CSV_PATH = "hospitals_split/hospital_01.csv"
+GLOBAL_WEIGHTS_PATH = "round1_global.pt"
+CSV_PATH = "hospitals_split/hospital_02.csv"
 IMG_ROOT = Path.cwd()
 BATCH_SIZE = 16
 EPOCHS = 3
 LR = 1e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-SAVE_PATH = "hospital01_densenet_torchvision.pt"
+SAVE_PATH = "hospital02_densenet_torchvision.pt"
 
 # === Custom Dataset ===
 class CheXpertDataset(Dataset):
@@ -70,6 +71,19 @@ model.classifier = nn.Sequential(
     nn.Sigmoid()
 )
 model = model.to(DEVICE)
+
+try:
+    # Load the global state dictionary from the server
+    global_weights = torch.load(GLOBAL_WEIGHTS_PATH, map_location=DEVICE)
+    
+    # Load the state dictionary into your local model
+    model.load_state_dict(global_weights)
+    print(f"✅ Successfully loaded global weights from {GLOBAL_WEIGHTS_PATH}.")
+
+except FileNotFoundError:
+    print(f"⚠️ Global weights file not found at {GLOBAL_WEIGHTS_PATH}. Starting training from scratch with ImageNet pretraining.")
+except Exception as e:
+    print(f"🛑 Error loading global weights: {e}. Starting training from scratch.")
 
 # === Loss & Optimizer ===
 criterion = nn.BCELoss()
