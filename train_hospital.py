@@ -18,6 +18,12 @@ LR = 1e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAVE_PATH = "hospital02_densenet_torchvision.pt"
 
+# Extract the hospital number (e.g., '02') from the CSV_PATH
+match = re.search(r'hospital_(\d+)', CSV_PATH)
+HOSPITAL_NUMBER = match.group(1) if match else "XX"
+LOSS_SAVE_PATH = f"hospital_{HOSPITAL_NUMBER}_loss.csv"
+print(f"Loss will be saved to: {LOSS_SAVE_PATH}")
+
 # === Custom Dataset ===
 class CheXpertDataset(Dataset):
     def __init__(self, csv_path, img_root, transform=None):
@@ -89,6 +95,8 @@ except Exception as e:
 criterion = nn.BCELoss()
 optimizer = optim.Adam(model.parameters(), lr=LR)
 
+epoch_losses = []
+
 # === Training Loop ===
 for epoch in range(EPOCHS):
     model.train()
@@ -102,7 +110,16 @@ for epoch in range(EPOCHS):
         optimizer.step()
         running_loss += loss.item() * imgs.size(0)
     epoch_loss = running_loss / len(dataset)
+    epoch_losses.append(epoch_loss)
     print(f"Epoch {epoch+1}: Loss = {epoch_loss:.4f}")
+
+loss_df = pd.DataFrame({
+    'epoch': range(1, EPOCHS + 1),
+    'loss': epoch_losses
+})
+loss_df.to_csv(LOSS_SAVE_PATH, index=False)
+print(f"\n✅ Epoch losses saved to {LOSS_SAVE_PATH}")
+
 
 torch.save(model.state_dict(), SAVE_PATH)
 print(f"\n✅ Model saved to {SAVE_PATH}")
