@@ -9,20 +9,18 @@ from pathlib import Path
 from tqdm import tqdm
 
 # === CONFIG ===
-GLOBAL_WEIGHTS_PATH = "round1_global.pt"
-CSV_PATH = "hospitals_split/hospital_02.csv"
+GLOBAL_WEIGHTS_PATH = "global/round3_global.pt"
+# CSV_PATH = "hospitals_split_skewed/hospital_01.csv"
+CSV_PATH = "hospitals_split/hospital_03.csv"
 IMG_ROOT = Path.cwd()
 BATCH_SIZE = 16
 EPOCHS = 3
 LR = 1e-4
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-SAVE_PATH = "hospital02_densenet_torchvision.pt"
-
-# Extract the hospital number (e.g., '02') from the CSV_PATH
-match = re.search(r'hospital_(\d+)', CSV_PATH)
-HOSPITAL_NUMBER = match.group(1) if match else "XX"
-LOSS_SAVE_PATH = f"hospital_{HOSPITAL_NUMBER}_loss.csv"
-print(f"Loss will be saved to: {LOSS_SAVE_PATH}")
+# SAVE_PATH = "hospital01_skewed_densenet_torchvision.pt"
+# LOSS_SAVE_PATH = f"hospital_01_skewed_loss.csv"
+SAVE_PATH = "hospital03_densenet_torchvision4.pt"
+LOSS_SAVE_PATH = f"hospital_03_loss4.csv"
 
 # === Custom Dataset ===
 class CheXpertDataset(Dataset):
