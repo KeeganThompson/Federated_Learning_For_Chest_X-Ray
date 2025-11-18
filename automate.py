@@ -13,7 +13,7 @@ def automate_training(algorithm="fedavg", num_rounds=3):
         algorithm: Either "fedavg" or "fedprox"
         num_rounds: Number of federated learning rounds to run
     """
-    num_hospitals = 3
+    num_hospitals = 4
     
     for round_id in range(1, num_rounds + 1):
         print(f"\n{'='*60}")
