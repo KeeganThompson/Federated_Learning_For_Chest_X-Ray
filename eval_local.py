@@ -66,11 +66,11 @@ def eval_local(hospital_id, round_id, hospital_dir="hospitals_split", img_root=N
         dict: Dictionary containing evaluation metrics
     """
     if img_root is None:
-        img_root = Path.cwd()
+        img_root = Path.cwd() / "CheXpert-v1.0-small"
     else:
         img_root = Path(img_root)
     
-    csv_path = f"{hospital_dir}/{hospital_id}.csv"
+    csv_path = f"{hospital_dir}/hospital_" + f"{hospital_id:02d}" + ".csv"
     local_ckpt = f"hospital{hospital_id}_densenet_torchvision{round_id}.pt"
     
     print(f"[INFO] Using device: {DEVICE}")

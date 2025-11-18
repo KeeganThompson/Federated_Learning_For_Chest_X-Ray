@@ -97,12 +97,12 @@ def load_global_model(global_ckpt, device=None):
 def evaluate_hospital(hospital_id, model, hospital_dir, img_root, batch_size=32, device=None):
     """
     Evaluates the model on a single hospital's test split.
-    Returns: (mean_auroc, mean_auprc, avg_loss) or (None, None, None) if metrics cannot be calculated.
+    Returns: Dictionary with metrics or None if evaluation cannot be performed.
     """
     if device is None:
         device = DEVICE
     
-    csv_filename = f"{hospital_id}.csv"
+    csv_filename = f"hospital_" + f"{hospital_id:02d}" + ".csv"
     csv_path = Path(hospital_dir) / csv_filename
     
     print(f"\n=============== Evaluating on {csv_filename} ===============")
@@ -112,13 +112,13 @@ def evaluate_hospital(hospital_id, model, hospital_dir, img_root, batch_size=32,
         dataset = CheXpertDataset(csv_path, img_root, transform=transform)
         if len(dataset) == 0:
             print(f"[WARN] Dataset for {csv_filename} is empty. Skipping.")
-            return None, None, None
+            return None
     except FileNotFoundError:
         print(f"[ERROR] CSV file not found for {csv_filename}. Skipping.")
-        return None, None, None
+        return None
     except pd.errors.EmptyDataError:
         print(f"[ERROR] CSV file is empty for {csv_filename}. Skipping.")
-        return None, None, None
+        return None
 
     loader = DataLoader(
         dataset,
@@ -173,10 +173,10 @@ def evaluate_hospital(hospital_id, model, hospital_dir, img_root, batch_size=32,
             except ValueError as e:
                 print(f"[ERROR] Metric calculation failed for label '{label}': {e}")
 
-
     # Final Summary for current hospital
     print("\n--- Summary ---")
     print(f"BCE Loss: {avg_loss:.4f}")
+    print(f"Samples evaluated: {n}")
 
     if auroc_scores:
         mean_auroc = np.mean(auroc_scores)
@@ -184,12 +184,24 @@ def evaluate_hospital(hospital_id, model, hospital_dir, img_root, batch_size=32,
         
         print(f" Mean AUROC (mAUC) across {len(auroc_scores)} valid labels: {mean_auroc:.4f}")
         print(f" Mean AUPRC (mAP) across {len(auprc_scores)} valid labels: {mean_auprc:.4f}")
-        return mean_auroc, mean_auprc, avg_loss
+        
+        # Return dictionary with all metrics
+        return {
+            'Hospital_ID': hospital_id,
+            'Samples_Evaluated': n,
+            'BCE_Loss': avg_loss,
+            'Mean_AUROC': mean_auroc,
+            'Mean_AUPRC': mean_auprc
+        }
     else:
         print(" [WARN] Could not calculate Mean AUROC/AUPRC (insufficient labels with >1 class).")
-        return None, None, avg_loss
-
-    print(f" (Samples evaluated: {n})")
+        return {
+            'Hospital_ID': hospital_id,
+            'Samples_Evaluated': n,
+            'BCE_Loss': avg_loss,
+            'Mean_AUROC': np.nan,
+            'Mean_AUPRC': np.nan
+        }
 
 
 def eval_global_all(round_id, hospital_ids, hospital_dir="hospitals_split", img_root=None, batch_size=32):
@@ -207,92 +219,105 @@ def eval_global_all(round_id, hospital_ids, hospital_dir="hospitals_split", img_
         dict: Dictionary containing evaluation metrics across all hospitals
     """
     if img_root is None:
-        img_root = Path.cwd()
+        img_root = Path.cwd() / "CheXpert-v1.0-small"
     else:
-        img_root = Path(img_root)
+        img_root = Path(img_root) 
     
     global_ckpt = f"global/round{round_id}_global.pt"
     
     print(f"[INFO] Using device: {DEVICE}")
-    print("\n=======================================================")
-    print(f"Starting Federated Evaluation on {len(hospital_ids)} Hospitals")
-    print("=======================================================")
     
     # Load the global model
     global_model = load_global_model(global_ckpt, DEVICE)
     if global_model is None:
         return None
     
-    # Lists to store the mean AUROC and AUPRC from each hospital
-    all_hospital_aurocs = []
-    all_hospital_auprcs = []
-    all_hospital_losses = []
-    hospital_results = []
+    # ===== Main Execution =====
+    print("\n=======================================================")
+    print(f"Starting Federated Evaluation on {len(hospital_ids)} Hospitals")
+    print("=======================================================")
+    
+    # List to store the summary dictionary from each hospital
+    global_results_list = []
     
     for hospital_id in hospital_ids:
-        m_auroc, m_auprc, avg_loss = evaluate_hospital(
-            hospital_id, global_model, hospital_dir, img_root, batch_size, DEVICE
-        )
-        
-        hospital_results.append({
-            'hospital_id': hospital_id,
-            'mean_auroc': m_auroc,
-            'mean_auprc': m_auprc,
-            'bce_loss': avg_loss
-        })
-        
-        if m_auroc is not None:
-            all_hospital_aurocs.append(m_auroc)
-        if m_auprc is not None:
-            all_hospital_auprcs.append(m_auprc)
-        if avg_loss is not None:
-            all_hospital_losses.append(avg_loss)
+        result = evaluate_hospital(hospital_id, global_model, hospital_dir, img_root, batch_size, DEVICE)
+    
+        if result is not None:
+            global_results_list.append(result)
+    
+    # Convert list of results to DataFrame
+    if not global_results_list:
+        print("[ERROR] No valid evaluation results collected.")
+        return None
+    
+    df_results = pd.DataFrame(global_results_list)
     
     # Final calculation of the average metrics across all hospitals
     print("\n=======================================================")
     print("FINAL GLOBAL AVERAGE METRICS (Across All Hospitals)")
     print("=======================================================")
     
-    result = {
-        'round_id': round_id,
-        'hospital_results': hospital_results
-    }
+    # Initialize variables
+    final_mean_auroc = np.nan
+    final_mean_auprc = np.nan
+    final_weighted_bce = np.nan
     
-    if all_hospital_aurocs:
-        final_mean_auroc = np.mean(all_hospital_aurocs)
-        result['grand_mean_auroc'] = final_mean_auroc
-        print(f"Grand Mean AUROC (mAUC) across {len(all_hospital_aurocs)} hospitals: {final_mean_auroc:.4f}")
-    else:
-        result['grand_mean_auroc'] = np.nan
-        print("Could not calculate Grand Mean AUROC (No valid hospital metrics collected).")
+    if not df_results.empty:
+        # Calculate the simple mean for AUROC and AUPRC (Average of means)
+        final_mean_auroc = df_results['Mean_AUROC'].mean()
+        final_mean_auprc = df_results['Mean_AUPRC'].mean()
     
-    if all_hospital_auprcs:
-        final_mean_auprc = np.mean(all_hospital_auprcs)
-        result['grand_mean_auprc'] = final_mean_auprc
-        print(f"Grand Mean AUPRC (mAP) across {len(all_hospital_auprcs)} hospitals: {final_mean_auprc:.4f}")
-    else:
-        result['grand_mean_auprc'] = np.nan
-        print("Could not calculate Grand Mean AUPRC (No valid hospital metrics collected).")
+        # --- FIX: Calculate the Weighted Mean for BCE Loss ---
+        losses = df_results['BCE_Loss'].to_numpy()
+        samples = df_results['Samples_Evaluated'].to_numpy()
     
-    if all_hospital_losses:
-        final_mean_loss = np.mean(all_hospital_losses)
-        result['grand_mean_loss'] = final_mean_loss
-        print(f"Grand Mean BCE Loss across {len(all_hospital_losses)} hospitals: {final_mean_loss:.4f}")
+        weighted_total_loss = np.sum(losses * samples)
+        total_samples = np.sum(samples)
+        final_weighted_bce = weighted_total_loss / total_samples
+    
+        # Print final grand average to console
+        print(f"Weighted Mean BCE Loss: {final_weighted_bce:.4f}")
+        print(f"Grand Mean AUROC (mAUC) across {len(df_results)} hospitals: {final_mean_auroc:.4f}")
+        print(f"Grand Mean AUPRC (mAP) across {len(df_results)} hospitals: {final_mean_auprc:.4f}")
+    
+        # Create the grand mean summary row for the CSV
+        grand_mean_row = pd.Series({
+            'Hospital_ID': 'Global_Mean (Weighted BCE Loss)',
+            'Samples_Evaluated': f"N={len(df_results)} (Total Samples: {total_samples})",
+            'BCE_Loss': final_weighted_bce,
+            'Mean_AUROC': final_mean_auroc,
+            'Mean_AUPRC': final_mean_auprc
+        })
+    
+        # Append the grand mean row to the DataFrame
+        df_results.loc[len(df_results)] = grand_mean_row
+    
     else:
-        result['grand_mean_loss'] = np.nan
+        print("Could not calculate Grand Mean metrics (No valid hospital metrics collected).")
     
     print("\nFederated Evaluation Complete.")
     print("=======================================================")
     
     # Save results to CSV
     Path("eval_results").mkdir(exist_ok=True)
-    results_df = pd.DataFrame(hospital_results)
     output_filename = f"eval_results/global_evaluation_round{round_id}.csv"
     try:
-        results_df.to_csv(output_filename, index=False)
+        df_results.to_csv(output_filename, index=False)
         print(f"\n[INFO] Results successfully saved to {output_filename}")
     except Exception as e:
         print(f"[ERROR] Failed to save results to CSV: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Return summary dictionary
+    result = {
+        'round_id': round_id,
+        'hospital_results': global_results_list,
+        'grand_mean_auroc': final_mean_auroc,
+        'grand_mean_auprc': final_mean_auprc,
+        'grand_mean_loss': final_weighted_bce
+    }
     
     return result
 
@@ -303,7 +328,7 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2:
         round_id = int(sys.argv[1])
         # Default hospital IDs if not provided
-        hospital_ids = [1, 2, 3] if len(sys.argv) == 2 else [int(x) for x in sys.argv[2:]]
+        hospital_ids = range(5,11)
         eval_global_all(round_id, hospital_ids)
     else:
         print("Usage: python eval_global_new.py <round_id> [hospital_id1] [hospital_id2] ...")
